@@ -30,20 +30,38 @@ include_directories(${RKNN_API_PATH}/include)
 include_directories(${CMAKE_SOURCE_DIR}/include/3rdparty)
 include_directories(${RGA_PATH}/include)
 
-# opencv
-find_package(OpenCV REQUIRED)
-
 set(CMAKE_INSTALL_RPATH "lib")
 
 
 # rknn_yolov5_demo
 include_directories( ${CMAKE_SOURCE_DIR}/include)
 
+option(CROSS_COMPILE "Enable CROSS_COMPILE" ON)
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64")
+  if(CROSS_COMPILE)
+    message(STATUS "使能交叉编译")
+    set(CMAKE_EXE_LINKER_FLAGS "-fuse-ld=lld")
+    set(CMAKE_TOOLCHAIN_FILE "${PROJECT_SOURCE_DIR}/toolchains/aarch64-linux-gnu.toolchain.cmake")
+    set(CMAKE_SYSROOT "/usr/lib/aarch64-linux-gnu;/usr/local/lib/aarch64-linux-gnu")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -target aarch64-linux-gnu -Os -fopenmp=libomp")
+    set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS}")
+    include_directories("/usr/local/lib/aarch64-linux-gnu/include;/usr/local/lib/aarch64-linux-gnu")
+    link_directories("/usr/local/lib/aarch64-linux-gnu/lib")
+    set(CMAKE_MODULE_PATH "/usr/local/lib/aarch64-linux-gnu")
+    set(CMAKE_PREFIX_PATH "/usr/local/lib/aarch64-linux-gnu")
+  endif()
+endif()
+
+# opencv
+find_package(OpenCV REQUIRED opencv_core opencv_imgcodecs opencv_imgproc opencv_videoio opencv_video opencv_highgui)
+
 add_executable(rknn_yolov5_demo
         src/main.cc
         src/postprocess.cc
         src/preprocess.cc
         src/rkYolov5s.cc
+        src/lock_queue.cpp
 )
 
 target_link_libraries(rknn_yolov5_demo

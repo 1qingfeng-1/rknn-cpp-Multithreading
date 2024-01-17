@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <mutex>
+#include <chrono>
+
 #include "rknn_api.h"
 
 #include "postprocess.h"
@@ -92,23 +94,22 @@ static int saveFloat(const char *file_name, float *output, int element_size)
     return 0;
 }
 
-rkYolov5s::rkYolov5s(const std::string &model_path)
-{
-    this->model_path = model_path;
+rkYolov5s::rkYolov5s(const std::string &model_path):model_path(model_path){
+    
     nms_threshold = NMS_THRESH;      // 默认的NMS阈值
     box_conf_threshold = BOX_THRESH; // 默认的置信度阈值
 }
 
 int rkYolov5s::init(rknn_context *ctx_in, bool share_weight)
 {
-    printf("Loading model...\n");
+    printf("Loading model...\n"); 
     int model_data_size = 0;
     model_data = load_model(model_path.c_str(), &model_data_size);
     // 模型参数复用/Model parameter reuse
     if (share_weight == true)
         ret = rknn_dup_context(ctx_in, &ctx);
     else
-        ret = rknn_init(&ctx, model_data, model_data_size, 0, NULL);
+        ret = rknn_init(&ctx, model_data, model_data_size, 0, nullptr);
     if (ret < 0)
     {
         printf("rknn_init error ret=%d\n", ret);
@@ -208,18 +209,23 @@ rknn_context *rkYolov5s::get_pctx()
     return &ctx;
 }
 
-cv::Mat rkYolov5s::infer(cv::Mat &orig_img)
+frame_detect_result_t rkYolov5s::infer(const cv::Mat &orig_img)
 {
     std::lock_guard<std::mutex> lock(mtx);
+
+    auto startTime = std::chrono::steady_clock::now();
     cv::Mat img;
     cv::cvtColor(orig_img, img, cv::COLOR_BGR2RGB);
+
     img_width = img.cols;
     img_height = img.rows;
 
     BOX_RECT pads;
     memset(&pads, 0, sizeof(BOX_RECT));
+
     cv::Size target_size(width, height);
     cv::Mat resized_img(target_size.height, target_size.width, CV_8UC3);
+
     // 计算缩放比例/Calculate the scaling ratio
     float scale_w = (float)target_size.width / img.cols;
     float scale_h = (float)target_size.height / img.rows;
@@ -251,8 +257,12 @@ cv::Mat rkYolov5s::infer(cv::Mat &orig_img)
         inputs[0].buf = img.data;
     }
 
-    rknn_inputs_set(ctx, io_num.n_input, inputs);
+    auto currentTime = std::chrono::steady_clock::now();
+    auto elapsedTime = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - startTime).count();
+    printf("pre_process: %d us\n", elapsedTime);
 
+    startTime = std::chrono::steady_clock::now();
+    rknn_inputs_set(ctx, io_num.n_input, inputs);
     rknn_output outputs[io_num.n_output];
     memset(outputs, 0, sizeof(outputs));
     for (int i = 0; i < io_num.n_output; i++)
@@ -260,42 +270,43 @@ cv::Mat rkYolov5s::infer(cv::Mat &orig_img)
         outputs[i].want_float = 0;
     }
 
+    
     // 模型推理/Model inference
-    ret = rknn_run(ctx, NULL);
-    ret = rknn_outputs_get(ctx, io_num.n_output, outputs, NULL);
+    ret = rknn_run(ctx, nullptr);
+    ret = rknn_outputs_get(ctx, io_num.n_output, outputs, nullptr);
 
+    currentTime = std::chrono::steady_clock::now();
+    elapsedTime = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - startTime).count();
+    printf("infer: %d us\n", elapsedTime);
+
+
+    startTime = std::chrono::steady_clock::now();
     // 后处理/Post-processing
     detect_result_group_t detect_result_group;
     std::vector<float> out_scales;
     std::vector<int32_t> out_zps;
+
+
     for (int i = 0; i < io_num.n_output; ++i)
     {
         out_scales.push_back(output_attrs[i].scale);
         out_zps.push_back(output_attrs[i].zp);
     }
+
     post_process((int8_t *)outputs[0].buf, (int8_t *)outputs[1].buf, (int8_t *)outputs[2].buf, height, width,
                  box_conf_threshold, nms_threshold, pads, scale_w, scale_h, out_zps, out_scales, &detect_result_group);
 
-    // 绘制框体/Draw the box
-    char text[256];
-    for (int i = 0; i < detect_result_group.count; i++)
-    {
-        detect_result_t *det_result = &(detect_result_group.results[i]);
-        sprintf(text, "%s %.1f%%", det_result->name, det_result->prop * 100);
-        // 打印预测物体的信息/Prints information about the predicted object
-        // printf("%s @ (%d %d %d %d) %f\n", det_result->name, det_result->box.left, det_result->box.top,
-        //        det_result->box.right, det_result->box.bottom, det_result->prop);
-        int x1 = det_result->box.left;
-        int y1 = det_result->box.top;
-        int x2 = det_result->box.right;
-        int y2 = det_result->box.bottom;
-        rectangle(orig_img, cv::Point(x1, y1), cv::Point(x2, y2), cv::Scalar(256, 0, 0, 256), 3);
-        putText(orig_img, text, cv::Point(x1, y1 + 12), cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(255, 255, 255));
-    }
-
     ret = rknn_outputs_release(ctx, io_num.n_output, outputs);
 
-    return orig_img;
+
+    frame_detect_result_t frame_result;
+    frame_result.group = std::move(detect_result_group);
+    frame_result.org_frame = std::move(orig_img.clone());
+
+    currentTime = std::chrono::steady_clock::now();
+    elapsedTime = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - startTime).count();
+    printf("post_process: %d us\n", elapsedTime);
+    return frame_result;
 }
 
 rkYolov5s::~rkYolov5s()
@@ -309,6 +320,7 @@ rkYolov5s::~rkYolov5s()
 
     if (input_attrs)
         free(input_attrs);
+
     if (output_attrs)
         free(output_attrs);
 }

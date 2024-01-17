@@ -10,6 +10,7 @@
 #include <queue>
 #include <thread>
 #include <unordered_map>
+#include <atomic>
 
 namespace dpool
 {
@@ -44,7 +45,7 @@ namespace dpool
         {
             {
                 MutexGuard guard(mutex_);
-                quit_ = true;
+                quit_.store(true);
             }
             cv_.notify_all();
 
@@ -68,7 +69,6 @@ namespace dpool
             auto result = task->get_future();
 
             MutexGuard guard(mutex_);
-            assert(!quit_);
 
             tasks_.emplace([task]()
                            { (*task)(); });
@@ -79,7 +79,6 @@ namespace dpool
             else if (currentThreads_ < maxThreads_)
             {
                 Thread t(&ThreadPool::worker, this);
-                assert(threads_.find(t.get_id()) == threads_.end());
                 threads_[t.get_id()] = std::move(t);
                 ++currentThreads_;
             }
@@ -106,12 +105,12 @@ namespace dpool
                                                      std::chrono::seconds(WAIT_SECONDS),
                                                      [this]()
                                                      {
-                                                         return quit_ || !tasks_.empty();
+                                                         return quit_.load() || !tasks_.empty();
                                                      });
                     --idleThreads_;
                     if (tasks_.empty())
                     {
-                        if (quit_)
+                        if (quit_.load())
                         {
                             --currentThreads_;
                             return;
@@ -147,12 +146,12 @@ namespace dpool
             }
         }
 
-        static constexpr size_t WAIT_SECONDS = 2;
+        static constexpr size_t WAIT_SECONDS = 1;
 
-        bool quit_;
-        size_t currentThreads_;
-        size_t idleThreads_;
-        size_t maxThreads_;
+        std::atomic<bool> quit_;
+        std::atomic<size_t> currentThreads_;
+        std::atomic<size_t> idleThreads_;
+        std::atomic<size_t> maxThreads_;
 
         mutable std::mutex mutex_;
         std::condition_variable cv_;

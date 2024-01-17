@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <vector>
+#include "opencv2/core.hpp"
 
 #define OBJ_NAME_MAX_SIZE 16
 #define OBJ_NUMB_MAX_SIZE 64
@@ -32,6 +33,11 @@ typedef struct _detect_result_group_t
     int count;
     detect_result_t results[OBJ_NUMB_MAX_SIZE];
 } detect_result_group_t;
+
+typedef struct __frame_detect_result_t{
+    detect_result_group_t group;
+    cv::Mat org_frame;
+} frame_detect_result_t;
 
 int post_process(int8_t *input0, int8_t *input1, int8_t *input2, int model_in_h, int model_in_w,
                  float conf_threshold, float nms_threshold, BOX_RECT pads, float scale_w, float scale_h,
