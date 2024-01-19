@@ -318,26 +318,15 @@ int post_process(int8_t *input0, int8_t *input1, int8_t *input2, int model_in_h,
   const int grid_w2 = model_in_w / stride2;
   int validCount2 = 0;
 
-  #pragma omp parallel sections
-  {
-    #pragma omp section
-    {
-      validCount0 = process(input0, (int *)anchor0, grid_h0, grid_w0, model_in_h, model_in_w, stride0, filterBoxes, objProbs,
-        classId, conf_threshold, qnt_zps[0], qnt_scales[0]);
-    }
+  validCount0 = process(input0, (int *)anchor0, grid_h0, grid_w0, model_in_h, model_in_w, stride0, filterBoxes, objProbs,
+      classId, conf_threshold, qnt_zps[0], qnt_scales[0]);
 
-    #pragma omp section
-    {
-      validCount1 = process(input1, (int *)anchor1, grid_h1, grid_w1, model_in_h, model_in_w, stride1, filterBoxes, objProbs,
-        classId, conf_threshold, qnt_zps[1], qnt_scales[1]);
-    }
+  validCount1 = process(input1, (int *)anchor1, grid_h1, grid_w1, model_in_h, model_in_w, stride1, filterBoxes, objProbs,
+      classId, conf_threshold, qnt_zps[1], qnt_scales[1]);
 
-    #pragma omp section
-    {
-      validCount2 = process(input2, (int *)anchor2, grid_h2, grid_w2, model_in_h, model_in_w, stride2, filterBoxes, objProbs,
-                        classId, conf_threshold, qnt_zps[2], qnt_scales[2]);
-    }
-  }
+  validCount2 = process(input2, (int *)anchor2, grid_h2, grid_w2, model_in_h, model_in_w, stride2, filterBoxes, objProbs,
+                      classId, conf_threshold, qnt_zps[2], qnt_scales[2]);
+
 
   int validCount = validCount0 + validCount1 + validCount2;
   // no object detect
@@ -355,13 +344,8 @@ int post_process(int8_t *input0, int8_t *input1, int8_t *input2, int model_in_h,
   quick_sort_indice_inverse(objProbs, 0, validCount - 1, indexArray);
 
   std::set<int> class_set(std::begin(classId), std::end(classId));
-
-  std::vector<int> class_vector(class_set.begin(), class_set.end());
-
-  #pragma omp parallel for
-  for (std::size_t i = 0; i < class_vector.size(); ++i)
+  for (auto c: class_set)
   {
-    int c = class_vector[i];
     nms(validCount, filterBoxes, classId, indexArray, c, nms_threshold);
   }
   

@@ -1,170 +1,98 @@
-#ifndef THREADPOOL_H
-#define THREADPOOL_H
+#ifndef THREAD_POOL_H
+#define THREAD_POOL_H
 
-#include <cassert>
-#include <condition_variable>
-#include <functional>
-#include <future>
-#include <memory>
-#include <mutex>
+#include <vector>
 #include <queue>
+#include <memory>
 #include <thread>
-#include <unordered_map>
-#include <atomic>
+#include <mutex>
+#include <condition_variable>
+#include <future>
+#include <functional>
+#include <stdexcept>
 
-#include "bindCpu.h"
-
-namespace dpool
+class ThreadPool {
+public:
+    ThreadPool(size_t);
+    template<class F, class... Args>
+    auto submit(F&& f, Args&&... args) 
+        -> std::future<typename std::result_of<F(Args...)>::type>;
+    ~ThreadPool();
+private:
+    // need to keep track of threads so we can join them
+    std::vector< std::thread > workers;
+    // the task queue
+    std::queue< std::function<void()> > tasks;
+    
+    // synchronization
+    std::mutex queue_mutex;
+    std::condition_variable condition;
+    bool stop;
+};
+ 
+// the constructor just launches some amount of workers
+inline ThreadPool::ThreadPool(size_t threads)
+    :   stop(false)
 {
-
-    class ThreadPool
-    {
-    public:
-        using MutexGuard = std::lock_guard<std::mutex>;
-        using UniqueLock = std::unique_lock<std::mutex>;
-        using Thread = std::thread;
-        using ThreadID = std::thread::id;
-        using Task = std::function<void()>;
-
-        ThreadPool()
-            : ThreadPool(Thread::hardware_concurrency())
-        {
-        }
-
-        explicit ThreadPool(size_t maxThreads)
-            : quit_(false),
-              currentThreads_(0),
-              idleThreads_(0),
-              maxThreads_(maxThreads)
-        {
-        }
-
-        // disable the copy operations
-        ThreadPool(const ThreadPool &) = delete;
-        ThreadPool &operator=(const ThreadPool &) = delete;
-
-        ~ThreadPool()
-        {
+    for(size_t i = 0;i<threads;++i)
+        workers.emplace_back(
+            [this]
             {
-                MutexGuard guard(mutex_);
-                quit_.store(true);
-            }
-            cv_.notify_all();
-
-            for (auto &elem : threads_)
-            {
-                assert(elem.second.joinable());
-                elem.second.join();
-            }
-        }
-
-        template <typename Func, typename... Ts>
-        auto submit(Func &&func, Ts &&...params)
-            -> std::future<typename std::result_of<Func(Ts...)>::type>
-        {
-            auto execute = std::bind(std::forward<Func>(func), std::forward<Ts>(params)...);
-
-            using ReturnType = typename std::result_of<Func(Ts...)>::type;
-            using PackagedTask = std::packaged_task<ReturnType()>;
-
-            auto task = std::make_shared<PackagedTask>(std::move(execute));
-            auto result = task->get_future();
-
-            MutexGuard guard(mutex_);
-
-            tasks_.emplace([task]()
-                           { (*task)(); });
-            if (idleThreads_ > 0)
-            {
-                cv_.notify_one();
-            }
-            else if (currentThreads_ < maxThreads_)
-            {
-                Thread t(&ThreadPool::worker, this);
-                threads_[t.get_id()] = std::move(t);
-                ++currentThreads_;
-            }
-
-            return result;
-        }
-
-        size_t threadsNum() const
-        {
-            MutexGuard guard(mutex_);
-            return currentThreads_;
-        }
-
-    private:
-        void worker()
-        {
-            bindBigCore();
-            while (true)
-            {
-                Task task;
+                for(;;)
                 {
-                    UniqueLock uniqueLock(mutex_);
-                    ++idleThreads_;
-                    auto hasTimedout = !cv_.wait_for(uniqueLock,
-                                                     std::chrono::seconds(WAIT_SECONDS),
-                                                     [this]()
-                                                     {
-                                                         return quit_.load() || !tasks_.empty();
-                                                     });
-                    --idleThreads_;
-                    if (tasks_.empty())
+                    std::function<void()> task;
+
                     {
-                        if (quit_.load())
-                        {
-                            --currentThreads_;
+                        std::unique_lock<std::mutex> lock(this->queue_mutex);
+                        this->condition.wait(lock,
+                            [this]{ return this->stop || !this->tasks.empty(); });
+                        if(this->stop && this->tasks.empty())
                             return;
-                        }
-                        if (hasTimedout)
-                        {
-                            --currentThreads_;
-                            joinFinishedThreads();
-                            finishedThreadIDs_.emplace(std::this_thread::get_id());
-                            return;
-                        }
+                        task = std::move(this->tasks.front());
+                        this->tasks.pop();
                     }
-                    task = std::move(tasks_.front());
-                    tasks_.pop();
+
+                    task();
                 }
-                task();
             }
-        }
+        );
+}
 
-        void joinFinishedThreads()
-        {
-            while (!finishedThreadIDs_.empty())
-            {
-                auto id = std::move(finishedThreadIDs_.front());
-                finishedThreadIDs_.pop();
-                auto iter = threads_.find(id);
+// add new work item to the pool
+template<class F, class... Args>
+auto ThreadPool::submit(F&& f, Args&&... args) 
+    -> std::future<typename std::result_of<F(Args...)>::type>
+{
+    using return_type = typename std::result_of<F(Args...)>::type;
 
-                assert(iter != threads_.end());
-                assert(iter->second.joinable());
+    auto task = std::make_shared< std::packaged_task<return_type()> >(
+            std::bind(std::forward<F>(f), std::forward<Args>(args)...)
+        );
+        
+    std::future<return_type> res = task->get_future();
+    {
+        std::unique_lock<std::mutex> lock(queue_mutex);
 
-                iter->second.join();
-                threads_.erase(iter);
-            }
-        }
+        // don't allow enqueueing after stopping the pool
+        if(stop)
+            throw std::runtime_error("enqueue on stopped ThreadPool");
 
-        static constexpr size_t WAIT_SECONDS = 1;
+        tasks.emplace([task](){ (*task)(); });
+    }
+    condition.notify_one();
+    return res;
+}
 
-        std::atomic<bool> quit_;
-        std::atomic<size_t> currentThreads_;
-        std::atomic<size_t> idleThreads_;
-        std::atomic<size_t> maxThreads_;
+// the destructor joins all threads
+inline ThreadPool::~ThreadPool()
+{
+    {
+        std::unique_lock<std::mutex> lock(queue_mutex);
+        stop = true;
+    }
+    condition.notify_all();
+    for(std::thread &worker: workers)
+        worker.join();
+}
 
-        mutable std::mutex mutex_;
-        std::condition_variable cv_;
-        std::queue<Task> tasks_;
-        std::queue<ThreadID> finishedThreadIDs_;
-        std::unordered_map<ThreadID, Thread> threads_;
-    };
-
-    constexpr size_t ThreadPool::WAIT_SECONDS;
-
-} // namespace dpool
-
-#endif /* THREADPOOL_H */
+#endif

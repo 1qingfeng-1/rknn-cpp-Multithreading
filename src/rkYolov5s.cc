@@ -213,7 +213,8 @@ frame_detect_result_t rkYolov5s::infer(const cv::Mat &orig_img)
 {
     std::lock_guard<std::mutex> lock(mtx);
 
-    auto startTime = std::chrono::steady_clock::now();
+    // auto startTime = std::chrono::steady_clock::now();
+
     cv::Mat img;
     cv::cvtColor(orig_img, img, cv::COLOR_BGR2RGB);
 
@@ -257,11 +258,12 @@ frame_detect_result_t rkYolov5s::infer(const cv::Mat &orig_img)
         inputs[0].buf = img.data;
     }
 
-    auto currentTime = std::chrono::steady_clock::now();
-    auto elapsedTime = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - startTime).count();
-    printf("pre_process: %ld us\n", elapsedTime);
+    // auto currentTime = std::chrono::steady_clock::now();
+    // auto elapsedTime = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - startTime).count();
+    // printf("pre_process: %ld us\n", elapsedTime);
 
-    startTime = std::chrono::steady_clock::now();
+    // startTime = std::chrono::steady_clock::now();
+
     rknn_inputs_set(ctx, io_num.n_input, inputs);
     rknn_output outputs[io_num.n_output];
     memset(outputs, 0, sizeof(outputs));
@@ -275,12 +277,12 @@ frame_detect_result_t rkYolov5s::infer(const cv::Mat &orig_img)
     ret = rknn_run(ctx, nullptr);
     ret = rknn_outputs_get(ctx, io_num.n_output, outputs, nullptr);
 
-    currentTime = std::chrono::steady_clock::now();
-    elapsedTime = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - startTime).count();
-    printf("infer: %ld us\n", elapsedTime);
+    // currentTime = std::chrono::steady_clock::now();
+    // elapsedTime = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - startTime).count();
+    // printf("infer: %ld us\n", elapsedTime);
 
 
-    startTime = std::chrono::steady_clock::now();
+    // startTime = std::chrono::steady_clock::now();
     // 后处理/Post-processing
     detect_result_group_t detect_result_group;
     std::vector<float> out_scales;
@@ -300,12 +302,12 @@ frame_detect_result_t rkYolov5s::infer(const cv::Mat &orig_img)
 
 
     frame_detect_result_t frame_result;
-    frame_result.group = std::move(detect_result_group);
-    frame_result.org_frame = std::move(orig_img.clone());
+    frame_result.group = detect_result_group;
+    frame_result.org_frame = orig_img.clone();
 
-    currentTime = std::chrono::steady_clock::now();
-    elapsedTime = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - startTime).count();
-    printf("post_process: %ld us\n", elapsedTime);
+    // currentTime = std::chrono::steady_clock::now();
+    // elapsedTime = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - startTime).count();
+    // printf("post_process: %ld us\n", elapsedTime);
     return frame_result;
 }
 

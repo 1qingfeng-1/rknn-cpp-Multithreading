@@ -26,7 +26,7 @@ int main(int argc, char **argv)
     char *vedio_name = argv[2];
 
     // 初始化rknn线程池/Initialize the rknn thread pool
-    int threadNum = 3;
+    int threadNum = 6;
     rknnPool<rkYolov5s, cv::Mat, frame_detect_result_t> testPool(model_name, threadNum);
     if (testPool.init() != 0)
     {
@@ -34,9 +34,10 @@ int main(int argc, char **argv)
         return -1;
     }
 
-
-    cv::setNumThreads(8);
+    cv::setNumThreads(4);
     cv::setUseOptimized(true);
+
+    omp_set_num_threads(4);
 
     cv::VideoCapture capture;
     if (strlen(vedio_name) == 1)
@@ -46,7 +47,6 @@ int main(int argc, char **argv)
 
 
     auto cap_video_thread = std::async(std::launch::async, [&](){
-        bindBigCore();
         cv::Mat frame;
          while (capture.read(frame)){
             testPool.put(frame);
@@ -57,11 +57,15 @@ int main(int argc, char **argv)
         std::atomic<size_t> frames(0);
         std::atomic<uint64_t> time_sum(0);
         frame_detect_result_t frame_detect_result;
-        bindLittleCore();
+        size_t frame_count = 0;
+        u_int64_t sum_t = 0;
         while (true){
             auto startTime = std::chrono::steady_clock::now();
 
             testPool.get(frame_detect_result);
+            auto currentTime = std::chrono::steady_clock::now();
+            auto elapsedTime = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - startTime).count();
+            frame_count++;
 
             // auto group = frame_detect_result.group;
             // auto org_frame = frame_detect_result.org_frame;
@@ -80,9 +84,14 @@ int main(int argc, char **argv)
             //         putText(org_frame, text, cv::Point(x1, y1 + 12), cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(255, 255, 255));
             //     }
             // } 
-            auto currentTime = std::chrono::steady_clock::now();
-            auto elapsedTime = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - startTime).count();
-            printf("get show: %ld us\n", elapsedTime);
+           
+            sum_t+=elapsedTime;
+            if(frame_count%240==0){
+                printf("240 帧内平均帧率: %f fps\n",  frame_count*1.0 / (sum_t/1000.0/1000.0));
+                frame_count=0;
+                sum_t=0;
+            }
+            
         }
     });
 

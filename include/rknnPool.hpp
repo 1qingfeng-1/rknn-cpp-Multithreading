@@ -21,7 +21,7 @@ private:
     size_t _id;
 
     std::mutex idMtx, queueMtx;
-    std::unique_ptr<dpool::ThreadPool> pool;
+    std::unique_ptr<ThreadPool> pool;
     std::unique_ptr<LockQueue<std::future<outputType>>> futs_ptr;
     std::vector<std::shared_ptr<rknnModel>> models;
 
@@ -50,7 +50,7 @@ int rknnPool<rknnModel, inputType, outputType>::init()
 {
     try
     {
-        pool = std::make_unique<dpool::ThreadPool>(_threadNum);
+        pool = std::make_unique<ThreadPool>(_threadNum);
         for (int i = 0; i < _threadNum; i++){
             models.push_back(std::make_shared<rknnModel>(_modelPath.c_str()));
         }
@@ -104,7 +104,7 @@ int rknnPool<rknnModel, inputType, outputType>::get(outputType &outputData)
     // return 0;
     std::future<outputType> future_output;
     futs_ptr->pop(future_output);
-    outputData = std::move(future_output.get());
+    outputData = future_output.get();
     return 0;
 }
 
