@@ -62,6 +62,7 @@ add_executable(rknn_yolov5_demo
         src/preprocess.cc
         src/rkYolov5s.cc
         src/lock_queue.cpp
+        src/bindCpu.cpp
 )
 
 target_link_libraries(rknn_yolov5_demo

@@ -9,6 +9,9 @@
 #include "rkYolov5s.hpp"
 #include "rknnPool.hpp"
 
+
+#include "bindCpu.h"
+
 int main(int argc, char **argv)
 {
     char *model_name = NULL;
@@ -43,6 +46,7 @@ int main(int argc, char **argv)
 
 
     auto cap_video_thread = std::async(std::launch::async, [&](){
+        bindBigCore();
         cv::Mat frame;
          while (capture.read(frame)){
             testPool.put(frame);
@@ -50,10 +54,11 @@ int main(int argc, char **argv)
     });
 
     auto get_result = std::async(std::launch::async, [&](){
-         std::atomic<size_t> frames(0);
+        std::atomic<size_t> frames(0);
         std::atomic<uint64_t> time_sum(0);
         frame_detect_result_t frame_detect_result;
-         while (true){
+        bindLittleCore();
+        while (true){
             auto startTime = std::chrono::steady_clock::now();
 
             testPool.get(frame_detect_result);

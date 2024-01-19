@@ -356,13 +356,15 @@ int post_process(int8_t *input0, int8_t *input1, int8_t *input2, int model_in_h,
 
   std::set<int> class_set(std::begin(classId), std::end(classId));
 
+  std::vector<int> class_vector(class_set.begin(), class_set.end());
+
   #pragma omp parallel for
+  for (std::size_t i = 0; i < class_vector.size(); ++i)
   {
-    for (auto c : class_set)
-    {
-      nms(validCount, filterBoxes, classId, indexArray, c, nms_threshold);
-    }
+    int c = class_vector[i];
+    nms(validCount, filterBoxes, classId, indexArray, c, nms_threshold);
   }
+  
 
 
   int last_count = 0;

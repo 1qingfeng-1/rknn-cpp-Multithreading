@@ -12,6 +12,8 @@
 #include <unordered_map>
 #include <atomic>
 
+#include "bindCpu.h"
+
 namespace dpool
 {
 
@@ -95,6 +97,7 @@ namespace dpool
     private:
         void worker()
         {
+            bindBigCore();
             while (true)
             {
                 Task task;

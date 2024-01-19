@@ -259,7 +259,7 @@ frame_detect_result_t rkYolov5s::infer(const cv::Mat &orig_img)
 
     auto currentTime = std::chrono::steady_clock::now();
     auto elapsedTime = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - startTime).count();
-    printf("pre_process: %d us\n", elapsedTime);
+    printf("pre_process: %ld us\n", elapsedTime);
 
     startTime = std::chrono::steady_clock::now();
     rknn_inputs_set(ctx, io_num.n_input, inputs);
@@ -277,7 +277,7 @@ frame_detect_result_t rkYolov5s::infer(const cv::Mat &orig_img)
 
     currentTime = std::chrono::steady_clock::now();
     elapsedTime = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - startTime).count();
-    printf("infer: %d us\n", elapsedTime);
+    printf("infer: %ld us\n", elapsedTime);
 
 
     startTime = std::chrono::steady_clock::now();
@@ -305,7 +305,7 @@ frame_detect_result_t rkYolov5s::infer(const cv::Mat &orig_img)
 
     currentTime = std::chrono::steady_clock::now();
     elapsedTime = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - startTime).count();
-    printf("post_process: %d us\n", elapsedTime);
+    printf("post_process: %ld us\n", elapsedTime);
     return frame_result;
 }
 
